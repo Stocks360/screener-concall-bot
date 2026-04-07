@@ -50,17 +50,14 @@ def load_stock_master():
 def find_stock_info(company_name, master):
     query = company_name.lower().strip()
 
-    # 1. Exact match
     if query in master:
         return master[query]
 
-    # 2. Fuzzy match
     keys    = list(master.keys())
     matches = difflib.get_close_matches(query, keys, n=1, cutoff=FUZZY_THRESHOLD)
     if matches:
         return master[matches[0]]
 
-    # 3. Substring / prefix match
     clean = query.rstrip(". ")
     for k, v in master.items():
         if clean in k or k in clean:
@@ -101,7 +98,7 @@ def is_in_watchlist(stock_info, company_name, watchlist):
 # ── Scrape Screener ───────────────────────────────────────────────────────────
 def fetch_concalls():
     headers = {
-        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-IN,en;q=0.9",
         "Referer":         "https://www.screener.in/",
@@ -111,39 +108,54 @@ def fetch_concalls():
     r.raise_for_status()
 
     soup  = BeautifulSoup(r.text, "html.parser")
-    table = soup.find("table")
+    table = soup.find("table", {"id": "result_list"})
+    if not table:
+        table = soup.find("table")
     if not table:
         print("[ERROR] No table found on page.")
         return []
 
     concalls = []
-    for tr in table.find_all("tr")[1:]:
-        tds = tr.find_all("td")
-        if len(tds) < 3:
+
+    # ── KEY FIX: rows use <th> for company, <td> for date/time ──
+    for tr in table.find("tbody").find_all("tr"):
+
+        # Company is in <th class="field-company_object_display">
+        th = tr.find("th", class_="field-company_object_display")
+        if not th:
             continue
 
-        links = tds[0].find_all("a")
-        if not links:
-            continue
-
-        company = ""
-        pdf_url = ""
-        for a in links:
-            text = a.get_text(strip=True).strip()
-            href = a.get("href", "").strip()
-            if text:
-                company = text
-                pdf_url = href
-                break
+        # Company name is inside <span class="ink-900 hover-link">
+        span = th.find("span", class_="ink-900")
+        if not span:
+            # fallback: get text from inner <a>
+            inner_a = th.find("a", class_="font-weight-500")
+            company = inner_a.get_text(strip=True) if inner_a else ""
+        else:
+            company = span.get_text(strip=True)
 
         if not company:
+            continue
+
+        # PDF url is the href of the outer <a> tag
+        outer_a = th.find("a")
+        pdf_url = outer_a.get("href", "") if outer_a else ""
+
+        # Date and Time are in <td class="field-date"> and <td class="field-time">
+        date_td = tr.find("td", class_="field-date")
+        time_td = tr.find("td", class_="field-time")
+
+        date_str = date_td.get_text(strip=True) if date_td else ""
+        time_str = time_td.get_text(strip=True) if time_td else ""
+
+        if not date_str:
             continue
 
         concalls.append({
             "company": company,
             "pdf":     pdf_url,
-            "date":    tds[1].get_text(strip=True),
-            "time":    tds[2].get_text(strip=True),
+            "date":    date_str,
+            "time":    time_str,
         })
 
     print(f"[INFO] Fetched {len(concalls)} concalls from Screener")
