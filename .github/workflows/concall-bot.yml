@@ -2,40 +2,39 @@ name: Screener Concall Bot
 
 on:
   schedule:
-    - cron: '30 0 * * *'   # 6:00 AM IST (UTC+5:30 → 00:30 UTC)
-    - cron: '30 12 * * *'  # 6:00 PM IST (UTC+5:30 → 12:30 UTC)
-  workflow_dispatch:         # Manual trigger from Actions tab
-
-permissions:
-  contents: write            # Needed to commit known_concalls.json back
+    - cron: "30 0 * * *"
+    - cron: "30 12 * * *"
+  workflow_dispatch:
 
 jobs:
-  run-bot:
+  check-concalls:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install requests beautifulsoup4
 
       - name: Run scraper
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-          WATCHLIST:          ${{ secrets.WATCHLIST }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
         run: python scraper.py
 
       - name: Commit updated known_concalls.json
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/known_concalls.json
           git diff --staged --quiet || git commit -m "chore: update known concalls [skip ci]"
           git push
