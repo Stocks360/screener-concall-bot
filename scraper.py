@@ -112,16 +112,26 @@ def fetch_concalls():
         if len(tds) < 3:
             continue
 
-        link_tag = tds[0].find("a")
-        if not link_tag:
+        links = tds[0].find_all("a")
+        if not links:
             continue
 
-        company = link_tag.get_text(strip=True)
-        href = link_tag.get("href", "")
-        pdf_url = href
+        company = ""
+        pdf_url = ""
 
-        date_str = tds[1].get_text(strip=True)
-        time_str = tds[2].get_text(strip=True)
+        for a in links:
+            text = a.get_text(" ", strip=True)
+            href = a.get("href", "").strip()
+            if text:
+                company = text.replace("", "").strip()
+                pdf_url = href
+                break
+
+        if not company:
+            continue
+
+        date_str = tds[1].get_text(" ", strip=True)
+        time_str = tds[2].get_text(" ", strip=True)
 
         concalls.append({
             "company": company,
