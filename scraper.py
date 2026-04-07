@@ -142,7 +142,7 @@ def save_known(keys):
         json.dump(sorted(list(keys)), f, indent=2)
 
 
-# ── Telegram HTML ─────────────────────────────────────────────────────────────
+# ── Telegram ──────────────────────────────────────────────────────────────────
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[WARN] Telegram credentials missing.")
@@ -159,7 +159,7 @@ def send_telegram(text):
     try:
         r = requests.post(url, data=payload, timeout=20)
         r.raise_for_status()
-        print("[INFO] Beautiful HTML message sent to Telegram.")
+        print("[INFO] Beautiful message sent successfully.")
     except Exception as e:
         print(f"[ERROR] Telegram failed: {e}")
 
@@ -209,10 +209,10 @@ def notify():
     save_known(new_keys)
 
     wl_note = " (All Stocks)" if not watchlist else f" (Watchlist: {', '.join(sorted(watchlist))})"
-    print(f"[{now}] New: {len(new_watch)} | Skipped duplicates: {skipped}{wl_note}")
+    print(f"[{now}] New: {len(new_watch)} | Skipped old: {skipped}{wl_note}")
 
     if not new_watch:
-        print("[INFO] No new concalls to notify.")
+        print("[INFO] No new concalls today.")
         return
 
     header = f"🆕 <b>New Upcoming Concalls Added</b>{wl_note}\n🕐 {now}\n📊 <b>{len(new_watch)}</b> new concall(s) found"
@@ -231,10 +231,10 @@ def notify():
             f"{sym_line}\n"
             f"{industry_line}\n"
             f"📅 {item['date']}  ⏰ {item['time']}\n"
-            f'📄 <a href="{item["pdf"]}">Download Concall Notice (PDF)</a>'
+            f'📄 <a href="{item["pdf"]}">📥 Download Concall Notice (PDF)</a>'
         )
         if item.get("nse"):
-            line += f'\n🔗 <a href="https://www.screener.in/company/{item["nse"]}/">View Company on Screener</a>'
+            line += f'\n🔗 <a href="https://www.screener.in/company/{item["nse"]}/">🌐 View Company on Screener</a>'
 
         lines.append(line)
 
