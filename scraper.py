@@ -22,7 +22,7 @@ WATCHLIST_RAW      = os.environ.get("WATCHLIST", "ALL")
 def load_stock_master():
     master = {}
     if not STOCKS_CSV.exists():
-        print("[WARN] indianStocks.csv not found. Symbol lookup disabled.")
+        print("[WARN] indianStocks.csv not found.")
         return master
 
     with STOCKS_CSV.open(encoding="utf-8", errors="ignore") as f:
@@ -30,18 +30,15 @@ def load_stock_master():
         for row in reader:
             if len(row) < 3:
                 continue
-            name     = row[0].strip()
-            bse      = row[1].strip() if len(row) > 1 else ""
-            nse      = row[2].strip() if len(row) > 2 else ""
-            industry = row[4].strip() if len(row) > 4 else ""
-            if name and name.lower() != "name":
-                master[name.lower()] = {
-                    "name":     name,
-                    "bse":      bse,
-                    "nse":      nse,
-                    "industry": industry,
-                }
-
+            name = row[0].strip()
+            if not name or name.lower() == "name":
+                continue
+            master[name.lower()] = {
+                "name": row[0].strip(),
+                "bse": row[1].strip() if len(row) > 1 else "",
+                "nse": row[2].strip() if len(row) > 2 else "",
+                "industry": row[4].strip() if len(row) > 4 else "",
+            }
     print(f"[INFO] Loaded {len(master)} stocks from CSV")
     return master
 
@@ -52,8 +49,7 @@ def find_stock_info(company_name, master):
     if query in master:
         return master[query]
 
-    keys = list(master.keys())
-    matches = difflib.get_close_matches(query, keys, n=1, cutoff=FUZZY_THRESHOLD)
+    matches = difflib.get_close_matches(query, master.keys(), n=1, cutoff=FUZZY_THRESHOLD)
     if matches:
         return master[matches[0]]
 
@@ -98,22 +94,19 @@ def fetch_concalls():
     soup = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table", {"id": "result_list"}) or soup.find("table")
     if not table:
-        print("[ERROR] No table found on page.")
+        print("[ERROR] No table found.")
         return []
 
     concalls = []
     for tr in table.find_all("tr"):
-        if not tr.find("td"):
-            continue  # skip header
-
         cells = tr.find_all(["td", "th"])
         if len(cells) < 3:
             continue
 
-        # Company + PDF link
         link = cells[0].find("a")
         if not link:
             continue
+
         company = link.get_text(strip=True)
         pdf_url = link.get("href", "")
         if pdf_url and not pdf_url.startswith("http"):
@@ -136,7 +129,8 @@ def fetch_concalls():
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 def make_key(item):
-    return f"{item['company']}|{item['date']}|{item['time']}"
+    # Better unique key: company + date + time + pdf (prevents duplicate PDFs)
+    return f"{item['company']}|{item['date']}|{item['time']}|{item['pdf']}"
 
 
 def load_known():
@@ -163,22 +157,20 @@ def send_telegram(text):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "disable_web_page_preview": True,
-        # parse_mode removed to avoid 400 errors
     }
 
     try:
         r = requests.post(url, data=payload, timeout=20)
-        print(f"[DEBUG] Telegram response: {r.status_code} | {r.text[:500]}")
+        print(f"[DEBUG] Telegram status: {r.status_code}")
         r.raise_for_status()
-        print("[INFO] Telegram message sent successfully.")
+        print("[INFO] Telegram message sent.")
     except Exception as e:
-        print(f"[ERROR] Failed to send Telegram message: {e}")
+        print(f"[ERROR] Telegram failed: {e}")
 
 
 def send_in_batches(lines, header):
     sep = "\n\n─────────────────\n\n"
     batch = header
-
     for line in lines:
         candidate = batch + (sep if batch != header else "\n\n") + line
         if len(candidate) > 3900:
@@ -186,7 +178,6 @@ def send_in_batches(lines, header):
             batch = header + "\n\n" + line
         else:
             batch = candidate
-
     if batch:
         send_telegram(batch)
 
@@ -202,26 +193,30 @@ def notify():
     new_all = []
     new_watch = []
     new_keys = set(known)
+    skipped_duplicates = 0
 
     for item in current:
         k = make_key(item)
-        if k not in known:
-            new_all.append(item)
+        if k in known:
+            skipped_duplicates += 1
+            continue
 
-            info = find_stock_info(item["company"], master)
-            item["nse"] = info.get("nse", "")
-            item["bse"] = info.get("bse", "")
-            item["industry"] = info.get("industry", "")
+        new_all.append(item)
 
-            if is_in_watchlist(info, item["company"], watchlist):
-                new_watch.append(item)
+        info = find_stock_info(item["company"], master)
+        item["nse"] = info.get("nse", "")
+        item["bse"] = info.get("bse", "")
+        item["industry"] = info.get("industry", "")
+
+        if is_in_watchlist(info, item["company"], watchlist):
+            new_watch.append(item)
 
         new_keys.add(k)
 
     save_known(new_keys)
 
     wl_note = " (All Stocks)" if not watchlist else f" (Watchlist: {', '.join(sorted(watchlist))})"
-    print(f"[{now}] New: {len(new_all)} | Notify: {len(new_watch)}{wl_note}")
+    print(f"[{now}] New: {len(new_all)} | Notify: {len(new_watch)} | Skipped duplicates: {skipped_duplicates}{wl_note}")
 
     if not new_watch:
         print("[INFO] No new concalls to notify.")
