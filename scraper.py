@@ -49,7 +49,7 @@ def find_stock_info(company_name, master):
     if query in master:
         return master[query]
 
-    matches = difflib.get_close_matches(query, master.keys(), n=1, cutoff=FUZZY_THRESHOLD)
+    matches = difflib.get_close_matches(query, list(master.keys()), n=1, cutoff=FUZZY_THRESHOLD)
     if matches:
         return master[matches[0]]
 
@@ -94,7 +94,7 @@ def fetch_concalls():
     soup = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table", {"id": "result_list"}) or soup.find("table")
     if not table:
-        print("[ERROR] No table found.")
+        print("[ERROR] No table found on page.")
         return []
 
     concalls = []
@@ -107,8 +107,8 @@ def fetch_concalls():
         if not link:
             continue
 
-        company = link.get_text(strip=True)
-        pdf_url = link.get("href", "")
+        company = link.get_text(strip=True).strip()
+        pdf_url = link.get("href", "").strip()
         if pdf_url and not pdf_url.startswith("http"):
             pdf_url = "https://www.screener.in" + pdf_url
 
@@ -129,8 +129,8 @@ def fetch_concalls():
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 def make_key(item):
-    # Better unique key: company + date + time + pdf (prevents duplicate PDFs)
-    return f"{item['company']}|{item['date']}|{item['time']}|{item['pdf']}"
+    # Prevents duplicates even if PDFs differ
+    return f"{item['company']}|{item['date']}|{item['time']}|{item.get('pdf', '')}"
 
 
 def load_known():
@@ -146,7 +146,7 @@ def save_known(keys):
         json.dump(sorted(list(keys)), f, indent=2)
 
 
-# ── Telegram ──────────────────────────────────────────────────────────────────
+# ── Telegram with Beautiful HTML ─────────────────────────────────────────────
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[WARN] Telegram credentials missing.")
@@ -156,14 +156,14 @@ def send_telegram(text):
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
+        "parse_mode": "HTML",                    # ← Enabled HTML
         "disable_web_page_preview": True,
     }
 
     try:
         r = requests.post(url, data=payload, timeout=20)
-        print(f"[DEBUG] Telegram status: {r.status_code}")
         r.raise_for_status()
-        print("[INFO] Telegram message sent.")
+        print("[INFO] Telegram message sent successfully (HTML).")
     except Exception as e:
         print(f"[ERROR] Telegram failed: {e}")
 
@@ -171,6 +171,7 @@ def send_telegram(text):
 def send_in_batches(lines, header):
     sep = "\n\n─────────────────\n\n"
     batch = header
+
     for line in lines:
         candidate = batch + (sep if batch != header else "\n\n") + line
         if len(candidate) > 3900:
@@ -178,6 +179,7 @@ def send_in_batches(lines, header):
             batch = header + "\n\n" + line
         else:
             batch = candidate
+
     if batch:
         send_telegram(batch)
 
@@ -190,7 +192,6 @@ def notify():
     current = fetch_concalls()
     known = load_known()
 
-    new_all = []
     new_watch = []
     new_keys = set(known)
     skipped_duplicates = 0
@@ -200,8 +201,6 @@ def notify():
         if k in known:
             skipped_duplicates += 1
             continue
-
-        new_all.append(item)
 
         info = find_stock_info(item["company"], master)
         item["nse"] = info.get("nse", "")
@@ -216,34 +215,34 @@ def notify():
     save_known(new_keys)
 
     wl_note = " (All Stocks)" if not watchlist else f" (Watchlist: {', '.join(sorted(watchlist))})"
-    print(f"[{now}] New: {len(new_all)} | Notify: {len(new_watch)} | Skipped duplicates: {skipped_duplicates}{wl_note}")
+    print(f"[{now}] New: {len(new_watch)} | Skipped duplicates: {skipped_duplicates}{wl_note}")
 
     if not new_watch:
         print("[INFO] No new concalls to notify.")
         return
 
-    header = f"🆕 New Upcoming Concalls Added{wl_note}\n🕐 {now}\n📊 {len(new_watch)} new concall(s) found"
+    header = f"🆕 <b>New Upcoming Concalls Added</b>{wl_note}\n🕐 {now}\n📊 <b>{len(new_watch)}</b> new concall(s) found"
 
     lines = []
     for item in new_watch:
         sym_parts = []
         if item.get("nse"):
-            sym_parts.append(f"NSE: {item['nse']}")
+            sym_parts.append(f'<code>NSE: {item["nse"]}</code>')
         if item.get("bse"):
-            sym_parts.append(f"BSE: {item['bse']}")
+            sym_parts.append(f'<code>BSE: {item["bse"]}</code>')
 
         sym_line = "  |  ".join(sym_parts) if sym_parts else "Symbol: N/A"
-        industry_line = f"Industry: {item.get('industry')}" if item.get("industry") else ""
+        industry_line = f"🏭 {item.get('industry')}" if item.get("industry") else ""
 
         line = (
-            f"📞 {item['company']}\n"
+            f"📞 <b>{item['company']}</b>\n"
             f"{sym_line}\n"
             f"{industry_line}\n"
             f"📅 {item['date']}  ⏰ {item['time']}\n"
-            f"📄 PDF: {item['pdf']}"
+            f'📄 <a href="{item["pdf"]}">Download Concall Notice (PDF)</a>'
         )
         if item.get("nse"):
-            line += f"\n🔗 Screener: https://www.screener.in/company/{item['nse']}/"
+            line += f'\n🔗 <a href="https://www.screener.in/company/{item["nse"]}/">View on Screener</a>'
 
         lines.append(line)
 
