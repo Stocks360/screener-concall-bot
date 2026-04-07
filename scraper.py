@@ -129,7 +129,7 @@ def fetch_concalls():
         company = ""
         pdf_url = ""
         for a in links:
-            text = a.get_text(" ", strip=True).strip()
+            text = a.get_text(strip=True).strip()
             href = a.get("href", "").strip()
             if text:
                 company = text
@@ -142,8 +142,8 @@ def fetch_concalls():
         concalls.append({
             "company": company,
             "pdf":     pdf_url,
-            "date":    tds[1].get_text(" ", strip=True),
-            "time":    tds[2].get_text(" ", strip=True),
+            "date":    tds[1].get_text(strip=True),
+            "time":    tds[2].get_text(strip=True),
         })
 
     print(f"[INFO] Fetched {len(concalls)} concalls from Screener")
