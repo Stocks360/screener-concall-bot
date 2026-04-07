@@ -43,7 +43,6 @@ def load_stock_master():
     return master
 
 
-# ── Fuzzy Match ───────────────────────────────────────────────────────────────
 def find_stock_info(company_name, master):
     query = company_name.lower().strip()
     if query in master:
@@ -60,7 +59,6 @@ def find_stock_info(company_name, master):
     return {}
 
 
-# ── Watchlist ─────────────────────────────────────────────────────────────────
 def build_watchlist():
     raw = WATCHLIST_RAW.strip().upper()
     if not raw or raw == "ALL":
@@ -80,7 +78,7 @@ def is_in_watchlist(stock_info, company_name, watchlist):
     return False
 
 
-# ── Scrape Screener ───────────────────────────────────────────────────────────
+# ── Scrape ────────────────────────────────────────────────────────────────────
 def fetch_concalls():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -94,7 +92,7 @@ def fetch_concalls():
     soup = BeautifulSoup(r.text, "html.parser")
     table = soup.find("table", {"id": "result_list"}) or soup.find("table")
     if not table:
-        print("[ERROR] No table found on page.")
+        print("[ERROR] No table found.")
         return []
 
     concalls = []
@@ -127,9 +125,7 @@ def fetch_concalls():
     return concalls
 
 
-# ── Persistence ───────────────────────────────────────────────────────────────
 def make_key(item):
-    # Prevents duplicates even if PDFs differ
     return f"{item['company']}|{item['date']}|{item['time']}|{item.get('pdf', '')}"
 
 
@@ -146,7 +142,7 @@ def save_known(keys):
         json.dump(sorted(list(keys)), f, indent=2)
 
 
-# ── Telegram with Beautiful HTML ─────────────────────────────────────────────
+# ── Telegram HTML ─────────────────────────────────────────────────────────────
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("[WARN] Telegram credentials missing.")
@@ -156,14 +152,14 @@ def send_telegram(text):
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "HTML",                    # ← Enabled HTML
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 
     try:
         r = requests.post(url, data=payload, timeout=20)
         r.raise_for_status()
-        print("[INFO] Telegram message sent successfully (HTML).")
+        print("[INFO] Beautiful HTML message sent to Telegram.")
     except Exception as e:
         print(f"[ERROR] Telegram failed: {e}")
 
@@ -171,7 +167,6 @@ def send_telegram(text):
 def send_in_batches(lines, header):
     sep = "\n\n─────────────────\n\n"
     batch = header
-
     for line in lines:
         candidate = batch + (sep if batch != header else "\n\n") + line
         if len(candidate) > 3900:
@@ -179,7 +174,6 @@ def send_in_batches(lines, header):
             batch = header + "\n\n" + line
         else:
             batch = candidate
-
     if batch:
         send_telegram(batch)
 
@@ -194,12 +188,12 @@ def notify():
 
     new_watch = []
     new_keys = set(known)
-    skipped_duplicates = 0
+    skipped = 0
 
     for item in current:
         k = make_key(item)
         if k in known:
-            skipped_duplicates += 1
+            skipped += 1
             continue
 
         info = find_stock_info(item["company"], master)
@@ -215,7 +209,7 @@ def notify():
     save_known(new_keys)
 
     wl_note = " (All Stocks)" if not watchlist else f" (Watchlist: {', '.join(sorted(watchlist))})"
-    print(f"[{now}] New: {len(new_watch)} | Skipped duplicates: {skipped_duplicates}{wl_note}")
+    print(f"[{now}] New: {len(new_watch)} | Skipped duplicates: {skipped}{wl_note}")
 
     if not new_watch:
         print("[INFO] No new concalls to notify.")
@@ -225,13 +219,11 @@ def notify():
 
     lines = []
     for item in new_watch:
-        sym_parts = []
-        if item.get("nse"):
-            sym_parts.append(f'<code>NSE: {item["nse"]}</code>')
-        if item.get("bse"):
-            sym_parts.append(f'<code>BSE: {item["bse"]}</code>')
+        sym = []
+        if item.get("nse"): sym.append(f'<code>NSE: {item["nse"]}</code>')
+        if item.get("bse"): sym.append(f'<code>BSE: {item["bse"]}</code>')
+        sym_line = "  |  ".join(sym) if sym else "Symbol: N/A"
 
-        sym_line = "  |  ".join(sym_parts) if sym_parts else "Symbol: N/A"
         industry_line = f"🏭 {item.get('industry')}" if item.get("industry") else ""
 
         line = (
@@ -242,7 +234,7 @@ def notify():
             f'📄 <a href="{item["pdf"]}">Download Concall Notice (PDF)</a>'
         )
         if item.get("nse"):
-            line += f'\n🔗 <a href="https://www.screener.in/company/{item["nse"]}/">View on Screener</a>'
+            line += f'\n🔗 <a href="https://www.screener.in/company/{item["nse"]}/">View Company on Screener</a>'
 
         lines.append(line)
 
